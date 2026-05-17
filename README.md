@@ -2,6 +2,39 @@
 
 `http-probe` periodically calls configured HTTP APIs and exposes Prometheus metrics for availability checks.
 
+It is designed to keep the HTTP prober metric surface compatible with Prometheus Blackbox Exporter where possible. Existing Grafana dashboards built for **Blackbox Exporter (HTTP prober)** can be reused directly or with minimal variable changes.
+
+## Configuration
+
+Configuration is intentionally simple: add the HTTP targets you want to check, then define one string that must appear in the response body.
+
+Example `config.json.example`:
+
+```json
+{
+    "listen_addr": ":9100",
+    "metrics_path": "/metrics",
+    "probe_interval": "60s",
+    "probe_timeout": "90s",
+    "targets": [
+        {
+            "name": "release_health",
+            "method": "GET",
+            "url": "https://httpbin.org/get",
+            "headers": {},
+            "body": {},
+            "expected_body_contains": "\"origin\""
+        }
+    ]
+}
+```
+
+Each target must have a unique `url`, which is also used as the Prometheus `target` label. `name` is optional and only used in logs.
+
+`expected_body_contains` is the business success check: when the HTTP status code is `200` and the response body contains this string, the probe is treated as successful. If the status code is not `200`, or the response body does not contain this string, `probe_success` is set to `0`.
+
+Header values, URL, expected string, and body support environment variable expansion with `${VAR}`. Top-level `probe_interval` and `probe_timeout` are defaults for all targets; target-level values can override them.
+
 ## Build
 
 ```powershell
@@ -12,7 +45,6 @@ go build -o bin/http-probe.exe .
 
 ```powershell
 Copy-Item config.json.example bin/config.json
-$env:OPENAI_API_KEY="sk-..."
 bin/http-probe.exe -config bin/config.json
 ```
 
@@ -20,34 +52,19 @@ bin/http-probe.exe -config bin/config.json
 
 ```powershell
 docker build -f Dockerfile -t http-probe:local .
-docker run --rm -p 9108:9108 `
-  -e OPENAI_API_KEY="sk-..." `
+docker run --rm -p 9100:9100 `
   -e TZ=Asia/Shanghai `
   -v ${PWD}/config.json.example:/etc/http-probe/config.json:ro `
   http-probe:local
 ```
 
-Build and push the versioned image on Windows:
-
-```powershell
-.\build_and_push_docker.bat
-```
-
-## Config
-
-Each target must have a unique `url`, used as the Prometheus `target` label. `name` is optional and only used in logs. Header values, URL, expected string, and body support environment variable expansion with `${VAR}`.
-
-Top-level `probe_interval` and `probe_timeout` are defaults for all targets. Each target can set its own `probe_interval` and `probe_timeout`; target values override the top-level defaults. If neither top-level nor target-level values are set, the built-in defaults are `30s` and `20s`.
-
-Success means:
-
-1. HTTP status code is `200`.
-2. Response body contains `expected_body_contains`.
+The bundled `config.json.example` listens on `:9100`. If `listen_addr` is omitted, the built-in default is `:9108`.
 
 ## Metrics
 
+The main metrics use the same names and label style as Blackbox Exporter HTTP probes:
+
 - `probe_success{target="https://proxy-a.example.com/v1/responses"}`: `1` means available, `0` means unavailable.
-- `http_probe_up{target="https://proxy-a.example.com/v1/responses"}`: compatibility alias for `probe_success`.
 - `probe_duration_seconds{target="https://proxy-a.example.com/v1/responses"}`: latest full probe duration.
 - `probe_http_duration_seconds{target="https://proxy-a.example.com/v1/responses",phase="resolve"}`: HTTP phase duration. Phases are `resolve`, `connect`, `tls`, `processing`, `transfer`, and `total`.
 - `probe_http_status_code{target="https://proxy-a.example.com/v1/responses"}`: latest HTTP status code, `0` means no response.
@@ -60,33 +77,22 @@ Success means:
 - `probe_http_version{target="https://proxy-a.example.com/v1/responses"}`: HTTP response version, for example `1.1` or `2`.
 - `probe_http_redirects{target="https://proxy-a.example.com/v1/responses"}`: redirects followed by the latest probe.
 - `probe_http_last_modified_timestamp_seconds{target="https://proxy-a.example.com/v1/responses"}`: parsed `Last-Modified` response header, or `0`.
+
+Additional `http_probe_*` metrics are exported for this service's own bookkeeping:
+
+- `http_probe_up{target="https://proxy-a.example.com/v1/responses"}`: compatibility alias for `probe_success`.
 - `http_probe_last_run_timestamp_seconds{target="https://proxy-a.example.com/v1/responses"}`: latest probe attempt timestamp.
 - `http_probe_last_success_timestamp_seconds{target="https://proxy-a.example.com/v1/responses"}`: latest successful probe timestamp.
 - `http_probe_success_total{target="https://proxy-a.example.com/v1/responses"}`: successful probe count.
 - `http_probe_failure_total{target="https://proxy-a.example.com/v1/responses",reason="bad_status"}`: failed probe count by reason.
 
-## Prometheus
+## Grafana Compatibility
 
-```yaml
-scrape_configs:
-  - job_name: http-probe
-    static_configs:
-      - targets:
-          - localhost:9108
-```
+Use a Grafana dashboard made for **Blackbox Exporter (HTTP prober)** and point its Prometheus data source at the Prometheus server scraping `http-probe`.
 
-## Alert Rule
+Compatibility notes:
 
-```yaml
-groups:
-  - name: http-probe
-    rules:
-      - alert: OpenAIProxyUnavailable
-        expr: probe_success == 0
-        for: 2m
-        labels:
-          severity: critical
-        annotations:
-          summary: "OpenAI proxy unavailable: {{ $labels.target }}"
-          description: "{{ $labels.target }} has failed HTTP probe checks for more than 2 minutes."
-```
+- Dashboard panels based on `probe_success`, `probe_duration_seconds`, `probe_http_duration_seconds`, `probe_http_status_code`, TLS certificate expiry, redirects, HTTP version, and content length should work.
+- The `target` label contains the configured probe URL, matching the common Blackbox Exporter dashboard expectation.
+- This exporter runs probes from its local config and exposes the latest results at `/metrics`; it does not implement Blackbox Exporter's `/probe?target=...&module=...` endpoint.
+- If a dashboard filters by `job`, set the dashboard variable to the scrape job name you use below, for example `http-probe`.
