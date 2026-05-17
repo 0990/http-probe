@@ -1,0 +1,16 @@
+{
+    "listen_addr": ":9100",
+    "metrics_path": "/metrics",
+    "probe_interval": "60s",
+    "probe_timeout": "90s",
+    "targets": [
+        {
+            "name": "release_health",
+            "method": "GET",
+            "url": "https://httpbin.org/get",
+            "headers": {},
+            "body": {},
+            "expected_body_contains": "\"origin\""
+        }
+    ]
+}
