@@ -24,7 +24,7 @@ import (
 
 const (
 	defaultConfigPath    = "config.json"
-	defaultListenAddr    = ":9108"
+	defaultListenAddr    = ":9100"
 	defaultMetricsPath   = "/metrics"
 	defaultProbeInterval = 30 * time.Second
 	defaultProbeTimeout  = 20 * time.Second

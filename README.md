@@ -58,7 +58,7 @@ docker run --rm -p 9100:9100 `
   http-probe:local
 ```
 
-The bundled `config.json.example` listens on `:9100`. If `listen_addr` is omitted, the built-in default is `:9108`.
+The bundled `config.json.example` listens on `:9100`. If `listen_addr` is omitted, the built-in default is `:9100`.
 
 ## Metrics
 

@@ -21,7 +21,7 @@ RUN apk add --no-cache ca-certificates tzdata
 RUN addgroup -S http-probe && adduser -S -G http-probe http-probe
 USER http-probe
 
-EXPOSE 9108
+EXPOSE 9100
 
 COPY --from=builder /out/http-probe /usr/local/bin/http-probe
 
